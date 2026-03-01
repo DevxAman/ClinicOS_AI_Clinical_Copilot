@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/run-agent/route.ts
 // POST /api/run-agent — Execute the AI Operations Agent
 // This is the core of ClinicOS: queries DB → calls AI → creates tasks → logs everything

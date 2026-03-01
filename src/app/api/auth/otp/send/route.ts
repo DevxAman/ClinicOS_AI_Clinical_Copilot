@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/otp/send/route.ts
 // POST — Send OTP for Doctor phone login
 // Rate limited: max 3 sends per phone per 10 minutes

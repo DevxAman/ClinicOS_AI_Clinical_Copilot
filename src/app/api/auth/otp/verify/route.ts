@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/otp/verify/route.ts
 // POST — Verify OTP and issue JWT for Doctor OR Patient
 // Handles both userType flows with strict clinic isolation

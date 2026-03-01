@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/doctor/register/route.ts
 // POST — Register new doctor + create clinic workspace
 // Assigns OWNER role, sets TRIAL subscription (14 days)

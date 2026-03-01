@@ -9,12 +9,14 @@ import { signAccessToken, signRefreshToken, setAuthCookies } from '@/lib/auth/jw
 import { doctorLoginEmailSchema } from '@/lib/auth/validation'
 import { logAuthEvent } from '@/lib/otp/sms'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(req: NextRequest) {
-  const ip        = req.headers.get('x-forwarded-for') ?? 'unknown'
+  const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
   const userAgent = req.headers.get('user-agent') ?? ''
 
   try {
-    const body   = await req.json()
+    const body = await req.json()
     const parsed = doctorLoginEmailSchema.safeParse(body)
 
     if (!parsed.success) {
@@ -50,10 +52,10 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Issue tokens ─────────────────────────────────────────────────────────
-    const accessToken  = await signAccessToken({
-      userId:   doctor.id,
+    const accessToken = await signAccessToken({
+      userId: doctor.id,
       clinicId: doctor.clinicId,
-      role:     doctor.role,
+      role: doctor.role,
       userType: 'DOCTOR',
     } as any)
     const refreshToken = await signRefreshToken({ userId: doctor.id, clinicId: doctor.clinicId } as any)
@@ -68,10 +70,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       data: {
-        doctor:  { id: doctor.id, name: doctor.name, email: doctor.email, role: doctor.role },
-        clinic:  { id: doctor.clinic.id, name: doctor.clinic.name, slug: doctor.clinic.slug },
+        doctor: { id: doctor.id, name: doctor.name, email: doctor.email, role: doctor.role },
+        clinic: { id: doctor.clinic.id, name: doctor.clinic.name, slug: doctor.clinic.slug },
         subscription: {
-          status:      doctor.clinic.subscriptionStatus,
+          status: doctor.clinic.subscriptionStatus,
           trialEndsAt: doctor.clinic.trialEndsAt,
         },
         accessToken,

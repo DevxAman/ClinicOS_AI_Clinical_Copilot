@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/subscription/create-checkout/route.ts
 // POST — Create Stripe or Razorpay checkout session
 // Only accessible to OWNER role with active/trial subscription

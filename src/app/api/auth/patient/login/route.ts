@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/patient/login/route.ts
 // POST — Initiate patient login
 // Patient is NOT self-registering — doctor creates their record

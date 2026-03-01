@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/subscription/webhook/route.ts
 // POST — Stripe + Razorpay webhook handler
 // CRITICAL: Subscription ONLY activates via verified webhook — never manually

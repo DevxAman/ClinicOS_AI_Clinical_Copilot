@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/register/send-otp/route.ts
 // POST — Send OTP for phone verification during registration (pre-clinic)
 // Dev mode: returns OTP in response + logs to console

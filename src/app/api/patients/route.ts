@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/patients/route.ts
 // GET — List patients (DOCTOR + OWNER only, clinic-scoped)
 // POST — Create patient (DOCTOR + OWNER, generates accessToken automatically)

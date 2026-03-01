@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/tasks/route.ts
 // GET /api/tasks — Filtered task list
 // POST /api/tasks — Create a task manually

@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 // src/app/api/auth/register/verify-otp/route.ts
 // POST — Verify OTP for phone verification during registration
 
