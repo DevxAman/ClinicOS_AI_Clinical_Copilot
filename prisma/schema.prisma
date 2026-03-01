@@ -1,0 +1,378 @@
+// prisma/schema.prisma
+// ClinicOS Graph — Complete Multi-Tenant Schema
+// Every table includes clinicId — NO EXCEPTIONS
+// Run: npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DoctorRole {
+  OWNER   // Clinic owner — full access + subscription management
+  DOCTOR  // Standard doctor — patient + procedure management
+  STAFF   // Limited operational access
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+}
+
+enum PlanType {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum PatientStatus {
+  PRE_OP
+  SCHEDULED
+  POST_OP
+  DISCHARGED
+  FOLLOW_UP
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+enum TaskType {
+  PRE_OP
+  FOLLOW_UP
+  BILLING
+  GENERAL
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum BillingStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ProcedureCategory {
+  ORTHOPAEDICS
+  GENERAL_SURGERY
+  CARDIOLOGY
+  OPHTHALMOLOGY
+  NEUROSURGERY
+  GYNAECOLOGY
+  UROLOGY
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLINIC (Tenant Root)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Clinic {
+  id                 String             @id @default(cuid())
+  name               String
+  slug               String             @unique // used in URLs e.g. apollo-delhi
+  phone              String?
+  email              String?
+  address            String?
+  city               String?
+  state              String?
+  country            String             @default("IN")
+  logoUrl            String?
+  
+  // Subscription
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  planType           PlanType           @default(FREE)
+  trialEndsAt        DateTime
+  subscriptionEndsAt DateTime?
+  
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  // Relations
+  doctors            Doctor[]
+  patients           Patient[]
+  procedures         Procedure[]
+  tasks              Task[]
+  billingEvents      BillingEvent[]
+  agentLogs          AgentLog[]
+  otpCodes           OTPCode[]
+  subscriptions      Subscription[]
+  authLogs           AuthLog[]
+
+  @@map("clinics")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOCTOR (Includes OWNER + STAFF roles)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Doctor {
+  id           String     @id @default(cuid())
+  clinicId     String                          // ← TENANT ISOLATION
+  name         String
+  email        String?
+  phone        String?
+  passwordHash String?                         // For email+password login
+  role         DoctorRole @default(DOCTOR)
+  specialty    String?
+  isActive     Boolean    @default(true)
+  
+  // OAuth
+  googleId     String?    @unique
+
+  // Refresh token (for JWT rotation)
+  refreshToken String?    @unique
+  
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  clinic       Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  tasks        Task[]
+  otpCodes     OTPCode[]
+  authLogs     AuthLog[]
+
+  @@unique([email, clinicId])
+  @@unique([phone, clinicId])
+  @@index([clinicId])
+  @@map("doctors")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PATIENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Patient {
+  id            String        @id @default(cuid())
+  clinicId      String                            // ← TENANT ISOLATION
+  name          String
+  phone         String
+  email         String?
+  dateOfBirth   DateTime?
+  gender        String?
+  notes         String?
+  status        PatientStatus @default(PRE_OP)
+  riskScore     Int           @default(0)
+  surgeryDate   DateTime?
+  
+  // Patient self-service access token (UUID, created by doctor)
+  accessToken   String        @unique @default(uuid())
+  
+  procedureId   String?
+  doctorId      String?
+  
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  clinic        Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  procedure     Procedure?    @relation(fields: [procedureId], references: [id])
+  tasks         Task[]
+  billingEvents BillingEvent[]
+  otpCodes      OTPCode[]
+
+  @@unique([phone, clinicId])                    // Patient phone unique per clinic
+  @@index([clinicId])
+  @@map("patients")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OTP CODE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model OTPCode {
+  id          String   @id @default(cuid())
+  clinicId    String                         // ← TENANT ISOLATION
+  phone       String
+  code        String                         // Hashed with bcrypt
+  doctorId    String?
+  patientId   String?
+  expiresAt   DateTime                       // Now + 1 minute (strict)
+  used        Boolean  @default(false)
+  attempts    Int      @default(0)           // Max 3 attempts
+  createdAt   DateTime @default(now())
+
+  clinic      Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  doctor      Doctor?  @relation(fields: [doctorId], references: [id])
+  patient     Patient? @relation(fields: [patientId], references: [id])
+
+  @@index([phone, clinicId])
+  @@index([clinicId])
+  @@map("otp_codes")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUBSCRIPTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Subscription {
+  id                  String             @id @default(cuid())
+  clinicId            String                                   // ← TENANT ISOLATION
+  status              SubscriptionStatus
+  planType            PlanType
+  
+  // Payment provider fields
+  provider            String             // 'stripe' | 'razorpay'
+  providerSubscriptionId String?         @unique
+  providerCustomerId  String?
+  
+  // Payment metadata (raw webhook payload)
+  paymentMetadata     Json?
+  
+  // Dates
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  clinic              Clinic             @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId])
+  @@map("subscriptions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTH LOG (Security audit trail)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AuthLog {
+  id        String   @id @default(cuid())
+  clinicId  String                        // ← TENANT ISOLATION
+  doctorId  String?
+  action    String                        // 'REGISTER' | 'LOGIN' | 'LOGOUT' | 'OTP_SENT' | 'OTP_FAILED' | 'OTP_SUCCESS'
+  userType  String                        // 'DOCTOR' | 'PATIENT'
+  phone     String?
+  email     String?
+  ip        String?
+  userAgent String?
+  success   Boolean
+  reason    String?
+  createdAt DateTime @default(now())
+
+  clinic    Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  doctor    Doctor?  @relation(fields: [doctorId], references: [id])
+
+  @@index([clinicId])
+  @@index([clinicId, action])
+  @@map("auth_logs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCEDURE
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Procedure {
+  id                 String            @id @default(cuid())
+  clinicId           String                                   // ← TENANT ISOLATION
+  name               String
+  category           ProcedureCategory @default(OTHER)
+  description        String?
+  durationMinutes    Int?
+  preOpRequirements  Json              @default("[]")
+  followUpSchedule   Json              @default("[]")
+  billingMilestones  Json              @default("[]")
+  
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  clinic             Clinic            @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patients           Patient[]
+
+  @@index([clinicId])
+  @@map("procedures")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TASK
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Task {
+  id          String     @id @default(cuid())
+  clinicId    String                           // ← TENANT ISOLATION
+  patientId   String
+  assignedTo  String?                          // doctorId
+  type        TaskType   @default(GENERAL)
+  title       String
+  description String?
+  status      TaskStatus @default(PENDING)
+  priority    Priority   @default(MEDIUM)
+  dueDate     DateTime?
+  aiGenerated Boolean    @default(false)
+  
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  clinic      Clinic     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient     Patient    @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  doctor      Doctor?    @relation(fields: [assignedTo], references: [id])
+
+  @@index([clinicId])
+  @@index([clinicId, patientId])
+  @@map("tasks")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BILLING EVENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model BillingEvent {
+  id          String        @id @default(cuid())
+  clinicId    String                              // ← TENANT ISOLATION
+  patientId   String
+  description String
+  amount      Float
+  status      BillingStatus @default(PENDING)
+  dueDate     DateTime?
+  paidAt      DateTime?
+  invoiceRef  String?
+  
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  clinic      Clinic        @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  patient     Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId])
+  @@index([clinicId, patientId])
+  @@map("billing_events")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT LOG
+// ─────────────────────────────────────────────────────────────────────────────
+
+model AgentLog {
+  id               String   @id @default(cuid())
+  clinicId         String                        // ← TENANT ISOLATION
+  rawQueryResults  Json
+  aiOutput         Json
+  actionsExecuted  Json
+  durationMs       Int
+  tasksCreated     Int      @default(0)
+  riskUpdated      Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  clinic           Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+
+  @@index([clinicId])
+  @@map("agent_logs")
+}
+

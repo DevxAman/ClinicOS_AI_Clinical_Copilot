@@ -1,0 +1,169 @@
+/* src/app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Global scroll & rendering ─── */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root {
+  /* ClinicOS Design Tokens */
+  --bg-primary: #0a0b0f;
+  --bg-secondary: #0f1117;
+  --bg-card: rgba(255, 255, 255, 0.04);
+  --bg-card-hover: rgba(255, 255, 255, 0.07);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border-medium: rgba(255, 255, 255, 0.12);
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --text-muted: rgba(255, 255, 255, 0.3);
+  --blue: #1a6cf6;
+  --blue-glow: rgba(26, 108, 246, 0.25);
+  --teal: #0ab69a;
+  --red: #ff6b6b;
+  --yellow: #fbbf24;
+  --green: #4ade80;
+}
+
+/* Glassmorphism card utility */
+@layer components {
+  .glass-card {
+    @apply bg-white/[0.04] border border-white/[0.07] rounded-xl backdrop-blur-sm;
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-200 hover:bg-white/[0.07] hover:border-white/[0.12];
+  }
+
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(26, 108, 246, 0.4), rgba(10, 182, 154, 0.2));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* Priority badge animation */
+@keyframes pulse-urgent {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-urgent {
+  animation: pulse-urgent 2s ease-in-out infinite;
+}
+
+/* AI agent glow effect */
+@keyframes agent-glow {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(26, 108, 246, 0);
+  }
+
+  50% {
+    box-shadow: 0 0 20px 4px rgba(26, 108, 246, 0.2);
+  }
+}
+
+.animate-agent-glow {
+  animation: agent-glow 3s ease-in-out infinite;
+}
+
+/* Skeleton loading */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg,
+      rgba(255, 255, 255, 0.04) 25%,
+      rgba(255, 255, 255, 0.08) 50%,
+      rgba(255, 255, 255, 0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+}
+
+/* ─── Performance optimizations ─── */
+/* Lazy-render below-fold landing sections */
+.landing-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+
+/* Smooth GPU-accelerated transitions */
+a,
+button {
+  will-change: auto;
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Optimize touch targets for mobile */
+@media (max-width: 768px) {
+
+  a,
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* ─── Scroll-to-top on refresh ─── */
+/* Prevents browser from restoring scroll position on reload */
