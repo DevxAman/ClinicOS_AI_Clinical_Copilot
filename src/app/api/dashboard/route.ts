@@ -9,6 +9,8 @@ import type { DashboardResponse } from '@/types'
 import { requireRole, checkSubscription } from '@/lib/auth/middleware-helpers'
 import { NextRequest } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const auth = await requireRole(req, ['OWNER', 'DOCTOR', 'STAFF'])

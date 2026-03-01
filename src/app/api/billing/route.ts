@@ -6,6 +6,8 @@ import { prisma } from '@/lib/prisma'
 import { apiSuccess, apiError } from '@/lib/utils'
 import { requireRole, checkSubscription } from '@/lib/auth/middleware-helpers'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const auth = await requireRole(request, ['OWNER', 'DOCTOR', 'STAFF'])

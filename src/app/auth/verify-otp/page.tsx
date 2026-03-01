@@ -2,11 +2,11 @@
 // src/app/auth/verify-otp/page.tsx
 // OTP verification page — user enters 6-digit code after OTP is sent
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 
-export default function VerifyOTPPage() {
+function VerifyOTPContent() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const phone = searchParams.get('phone') ?? ''
@@ -214,5 +214,13 @@ export default function VerifyOTPPage() {
                 </div>
             </main>
         </div>
+    )
+}
+
+export default function VerifyOTPPage() {
+    return (
+        <Suspense fallback={<div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Loading...</div>}>
+            <VerifyOTPContent />
+        </Suspense>
     )
 }
