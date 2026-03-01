@@ -1,106 +1,91 @@
-export const dynamic = 'force-dynamic';
 // src/app/api/subscription/webhook/route.ts
-// POST — Stripe + Razorpay webhook handler
-// CRITICAL: Subscription ONLY activates via verified webhook — never manually
-// Verifies webhook signature before processing
+// FIXED: Stripe client initialized inside handler, not at module level
 
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
 import crypto from 'crypto'
 import { prisma } from '@/lib/prisma'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2025-01-27.acacia' as any })
-
-// ── Stripe webhook ────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const provider = req.nextUrl.searchParams.get('provider') ?? 'stripe'
 
-  if (provider === 'stripe') {
-    return handleStripeWebhook(req)
-  }
-  if (provider === 'razorpay') {
-    return handleRazorpayWebhook(req)
-  }
+  if (provider === 'stripe') return handleStripeWebhook(req)
+  if (provider === 'razorpay') return handleRazorpayWebhook(req)
 
   return NextResponse.json({ error: 'Unknown provider' }, { status: 400 })
 }
 
 // ── Stripe ────────────────────────────────────────────────────────────────────
 async function handleStripeWebhook(req: NextRequest) {
+  const stripeKey     = process.env.STRIPE_SECRET_KEY
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+
+  if (!stripeKey || !webhookSecret) {
+    console.error('[STRIPE WEBHOOK] Missing Stripe env vars')
+    return NextResponse.json({ error: 'Stripe not configured' }, { status: 503 })
+  }
+
+  // Lazy import
+  const Stripe = (await import('stripe')).default
+  const stripe = new Stripe(stripeKey, { apiVersion: '2024-04-10' })
+
   const body      = await req.text()
-  const signature = req.headers.get('stripe-signature')!
+  const signature = req.headers.get('stripe-signature') ?? ''
 
-  let event: Stripe.Event
-
+  let event: any
   try {
-    event = stripe.webhooks.constructEvent(
-      body,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    )
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
   } catch (err) {
     console.error('[STRIPE WEBHOOK] Signature verification failed:', err)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
-  // Handle relevant events
   switch (event.type) {
-
     case 'checkout.session.completed': {
-      const session  = event.data.object as Stripe.Checkout.Session
+      const session  = event.data.object
       const clinicId = session.metadata?.clinicId
       const planType = session.metadata?.planType
-
-      if (!clinicId || !planType) {
-        console.error('[STRIPE] Missing metadata in session')
-        break
-      }
+      if (!clinicId || !planType) break
 
       await activateSubscription({
-        clinicId,
-        planType:              planType as any,
-        provider:              'stripe',
-        providerSubscriptionId: session.subscription as string,
-        providerCustomerId:    session.customer as string,
-        currentPeriodStart:    new Date(),
-        currentPeriodEnd:      new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        paymentMetadata:       session as unknown as Record<string, unknown>,
+        clinicId, planType, provider: 'stripe',
+        providerSubscriptionId: session.subscription,
+        providerCustomerId:     session.customer,
+        currentPeriodStart: new Date(),
+        currentPeriodEnd:   new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        paymentMetadata:    session,
       })
       break
     }
 
     case 'invoice.payment_succeeded': {
-      const invoice       = event.data.object as Stripe.Invoice
-      const subscriptionId = (invoice as any).subscription as string
-      const subscription  = await stripe.subscriptions.retrieve(subscriptionId)
-      const clinicId      = subscription.metadata?.clinicId
-      const planType      = subscription.metadata?.planType
+      const invoice        = event.data.object
+      const subscriptionId = invoice.subscription
+      if (!subscriptionId) break
 
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+      const clinicId     = subscription.metadata?.clinicId
+      const planType     = subscription.metadata?.planType
       if (!clinicId) break
 
       await activateSubscription({
-        clinicId,
-        planType:              planType as any ?? 'STARTER',
-        provider:              'stripe',
+        clinicId, planType: planType ?? 'STARTER', provider: 'stripe',
         providerSubscriptionId: subscriptionId,
-        providerCustomerId:    invoice.customer as string,
-        currentPeriodStart:    new Date((subscription as any).current_period_start * 1000),
-        currentPeriodEnd:      new Date((subscription as any).current_period_end * 1000),
-        paymentMetadata:       invoice as unknown as Record<string, unknown>,
+        providerCustomerId:     invoice.customer,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd:   new Date(subscription.current_period_end   * 1000),
+        paymentMetadata:    invoice,
       })
       break
     }
 
     case 'customer.subscription.deleted': {
-      const subscription = event.data.object as Stripe.Subscription
+      const subscription = event.data.object
       const clinicId     = subscription.metadata?.clinicId
       if (!clinicId) break
-
       await prisma.clinic.update({
         where: { id: clinicId },
         data:  { subscriptionStatus: 'EXPIRED', subscriptionEndsAt: new Date() },
       })
-      console.log(`[STRIPE] Subscription expired for clinic ${clinicId}`)
       break
     }
   }
@@ -110,43 +95,36 @@ async function handleStripeWebhook(req: NextRequest) {
 
 // ── Razorpay ──────────────────────────────────────────────────────────────────
 async function handleRazorpayWebhook(req: NextRequest) {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET
+  if (!secret) {
+    return NextResponse.json({ error: 'Razorpay not configured' }, { status: 503 })
+  }
+
   const body      = await req.text()
-  const signature = req.headers.get('x-razorpay-signature')!
-  const secret    = process.env.RAZORPAY_WEBHOOK_SECRET!
+  const signature = req.headers.get('x-razorpay-signature') ?? ''
+  const expected  = crypto.createHmac('sha256', secret).update(body).digest('hex')
 
-  // Verify HMAC-SHA256 signature
-  const expectedSig = crypto
-    .createHmac('sha256', secret)
-    .update(body)
-    .digest('hex')
-
-  if (expectedSig !== signature) {
-    console.error('[RAZORPAY WEBHOOK] Signature verification failed')
+  if (expected !== signature) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
   }
 
   const payload = JSON.parse(body)
-  const event   = payload.event
 
-  switch (event) {
-
+  switch (payload.event) {
     case 'subscription.activated':
     case 'subscription.charged': {
-      const sub       = payload.payload.subscription.entity
-      const clinicId  = sub.notes?.clinicId
-      const planType  = sub.notes?.planType
-
+      const sub      = payload.payload.subscription.entity
+      const clinicId = sub.notes?.clinicId
+      const planType = sub.notes?.planType
       if (!clinicId) break
 
       await activateSubscription({
-        clinicId,
-        planType:              planType ?? 'STARTER',
-        provider:              'razorpay',
+        clinicId, planType: planType ?? 'STARTER', provider: 'razorpay',
         providerSubscriptionId: sub.id,
-        providerCustomerId:    sub.customer_id,
-        currentPeriodStart:    new Date(sub.current_start * 1000),
-        currentPeriodEnd:      new Date(sub.current_end * 1000),
-        paymentMetadata:       payload as Record<string, unknown>,
+        providerCustomerId:     sub.customer_id,
+        currentPeriodStart: new Date(sub.current_start * 1000),
+        currentPeriodEnd:   new Date(sub.current_end   * 1000),
+        paymentMetadata:    payload,
       })
       break
     }
@@ -156,7 +134,6 @@ async function handleRazorpayWebhook(req: NextRequest) {
       const sub      = payload.payload.subscription.entity
       const clinicId = sub.notes?.clinicId
       if (!clinicId) break
-
       await prisma.clinic.update({
         where: { id: clinicId },
         data:  { subscriptionStatus: 'EXPIRED', subscriptionEndsAt: new Date() },
@@ -168,44 +145,46 @@ async function handleRazorpayWebhook(req: NextRequest) {
   return NextResponse.json({ status: 'ok' })
 }
 
-// ── Core activation function — called only from verified webhooks ─────────────
+// ── Activate subscription (only called from verified webhooks) ────────────────
 async function activateSubscription(params: {
   clinicId:               string
-  planType:               'FREE' | 'STARTER' | 'PROFESSIONAL' | 'ENTERPRISE'
+  planType:               string
   provider:               string
   providerSubscriptionId: string
   providerCustomerId?:    string
   currentPeriodStart:     Date
   currentPeriodEnd:       Date
-  paymentMetadata:        any
+  paymentMetadata:        unknown
 }) {
-  const { clinicId, planType, provider, providerSubscriptionId,
-          providerCustomerId, currentPeriodStart, currentPeriodEnd, paymentMetadata } = params
+  const {
+    clinicId, planType, provider, providerSubscriptionId,
+    providerCustomerId, currentPeriodStart, currentPeriodEnd, paymentMetadata,
+  } = params
 
   await prisma.$transaction([
-    // Update clinic subscription status
     prisma.clinic.update({
       where: { id: clinicId },
       data:  {
         subscriptionStatus: 'ACTIVE',
-        planType,
+        planType:           planType as any,
         subscriptionEndsAt: currentPeriodEnd,
       },
     }),
-    // Upsert subscription record
     prisma.subscription.upsert({
       where:  { providerSubscriptionId },
       create: {
-        clinicId, status: 'ACTIVE', planType, provider,
-        providerSubscriptionId, providerCustomerId,
-        currentPeriodStart, currentPeriodEnd, paymentMetadata,
+        clinicId, status: 'ACTIVE', planType: planType as any,
+        provider, providerSubscriptionId, providerCustomerId,
+        currentPeriodStart, currentPeriodEnd,
+        paymentMetadata: paymentMetadata as any,
       },
       update: {
-        status: 'ACTIVE', planType,
-        providerCustomerId, currentPeriodStart, currentPeriodEnd, paymentMetadata,
+        status: 'ACTIVE', planType: planType as any,
+        providerCustomerId, currentPeriodStart, currentPeriodEnd,
+        paymentMetadata: paymentMetadata as any,
       },
     }),
   ])
 
-  console.log(`[WEBHOOK] Subscription ACTIVATED for clinic ${clinicId} — Plan: ${planType}`)
+  console.log(`[WEBHOOK] Activated subscription for clinic ${clinicId} — ${planType}`)
 }
